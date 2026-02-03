@@ -31,6 +31,7 @@
 #include <utils/common/StringUtils.h>
 #include <utils/vehicle/SUMOVTypeParameter.h>
 #include <microsim/cfmodels/MSCFModel_Rail.h>
+#include <microsim/cfmodels/MSCFModel_RailETCS.h>
 #include "MSNet.h"
 #include "cfmodels/MSCFModel_IDM.h"
 #include "cfmodels/MSCFModel_Kerner.h"
@@ -392,6 +393,9 @@ MSVehicleType::build(SUMOVTypeParameter& from, const std::string& fileName) {
             break;
         case SUMO_TAG_CF_RAIL:
             vtype->myCarFollowModel = new MSCFModel_Rail(vtype);
+            break;
+        case SUMO_TAG_CF_RAIL_ETCS:
+            vtype->myCarFollowModel = new MSCFModel_RailETCS(vtype);
             break;
         case SUMO_TAG_CF_ACC:
             vtype->myCarFollowModel = new MSCFModel_ACC(vtype);

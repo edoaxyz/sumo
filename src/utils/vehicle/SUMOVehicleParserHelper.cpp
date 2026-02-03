@@ -1270,7 +1270,7 @@ SUMOVehicleParserHelper::parseCFMParams(SUMOVTypeParameter* into, const SumoXMLT
                 }
                 // add parsedCFMAttribute to cfParameter
                 into->cfParameter[it] = parsedCFMAttribute;
-            } else if (it == SUMO_ATTR_SPEED_TABLE || it == SUMO_ATTR_TRACTION_TABLE || it == SUMO_ATTR_RESISTANCE_TABLE) {
+            } else if (it == SUMO_ATTR_SPEED_TABLE || it == SUMO_ATTR_TRACTION_TABLE || it == SUMO_ATTR_RESISTANCE_TABLE || it == SUMO_ATTR_BRAKING_TABLE || it == SUMO_ATTR_EMG_BRAKING_TABLE) {
                 into->cfParameter[it] = parsedCFMAttribute;
             } else if (it == SUMO_ATTR_CF_IDM_STEPPING) {
                 // declare a int in wich save CFM int attribute
@@ -1472,6 +1472,22 @@ SUMOVehicleParserHelper::getAllowedCFModelAttrs() {
         railParams.insert(SUMO_ATTR_RESISTANCE_COEFFICIENT_QUADRATIC);
         allowedCFModelAttrs[SUMO_TAG_CF_RAIL] = railParams;
         allParams.insert(railParams.begin(), railParams.end());
+        // RailETCS
+        std::set<SumoXMLAttr> railETCSParams(genericParams);
+        railETCSParams.insert(SUMO_ATTR_TRAIN_TYPE);
+        railETCSParams.insert(SUMO_ATTR_TRACTION_TABLE);
+        railETCSParams.insert(SUMO_ATTR_RESISTANCE_TABLE);
+        railETCSParams.insert(SUMO_ATTR_BRAKING_TABLE);
+        railETCSParams.insert(SUMO_ATTR_EMG_BRAKING_TABLE);
+        railETCSParams.insert(SUMO_ATTR_NUM_SAMPLES);
+        railETCSParams.insert(SUMO_ATTR_MASSFACTOR);
+        railETCSParams.insert(SUMO_ATTR_MAXPOWER);
+        railETCSParams.insert(SUMO_ATTR_MAXTRACTION);
+        railETCSParams.insert(SUMO_ATTR_RESISTANCE_COEFFICIENT_CONSTANT);
+        railETCSParams.insert(SUMO_ATTR_RESISTANCE_COEFFICIENT_LINEAR);
+        railETCSParams.insert(SUMO_ATTR_RESISTANCE_COEFFICIENT_QUADRATIC);
+        allowedCFModelAttrs[SUMO_TAG_CF_RAIL_ETCS] = railETCSParams;
+        allParams.insert(railETCSParams.begin(), railETCSParams.end());
         // ACC
         std::set<SumoXMLAttr> ACCParams(genericParams);
         ACCParams.insert(SUMO_ATTR_SC_GAIN);

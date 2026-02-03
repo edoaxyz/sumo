@@ -369,6 +369,7 @@ enum SumoXMLTag {
     SUMO_TAG_CF_ACC,
     SUMO_TAG_CF_CACC,
     SUMO_TAG_CF_RAIL,
+    SUMO_TAG_CF_RAIL_ETCS,
     SUMO_TAG_CF_CC,
     /// @}
 
@@ -1232,8 +1233,11 @@ enum SumoXMLAttr {
     /// @{
     SUMO_ATTR_TRAIN_TYPE, //used by: Rail
     SUMO_ATTR_SPEED_TABLE, // list of speeds for traction and resistance value tables
-    SUMO_ATTR_TRACTION_TABLE, // list of traction values for the speeds table
-    SUMO_ATTR_RESISTANCE_TABLE, // list of resistance values for the speeds table
+    SUMO_ATTR_TRACTION_TABLE, // list of traction forces for the speeds table
+    SUMO_ATTR_RESISTANCE_TABLE, // list of resistance forces for the speeds table
+    SUMO_ATTR_BRAKING_TABLE, // list of braking forces for the speeds table
+    SUMO_ATTR_EMG_BRAKING_TABLE, // list of emergency braking forces for the speeds table
+    SUMO_ATTR_NUM_SAMPLES, // number of samples for mapped distances
     SUMO_ATTR_MASSFACTOR,
     SUMO_ATTR_MAXPOWER,
     SUMO_ATTR_MAXTRACTION,
