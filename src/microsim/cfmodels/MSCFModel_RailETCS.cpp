@@ -126,6 +126,9 @@ void MSCFModel_RailETCS::prepareSafeSpeedMap(int numSpeeds, int numDistances)
     myTrainParams.safeDistanceSpeedMap.reserve(numDistances);
     double currentBraking = INT_MAX;
 
+    // for each speed step defined in the speed table, compute the
+    // distance needed to stop from that speed considering the
+    // maximum braking force and resistance at each speed step
     for (int i = 0; i < numSpeeds; i++)
     {
         double currentSpeed = myTrainParams.speedMultiplier * i;
@@ -138,6 +141,7 @@ void MSCFModel_RailETCS::prepareSafeSpeedMap(int numSpeeds, int numDistances)
     myTrainParams.distanceMultiplier = currentDistance / numDistances;
 
     int speedIndex = 0;
+    // create the inverse map from distance to speed index
     for (int i = 0; i < numDistances; i++)
     {
         while (i * myTrainParams.distanceMultiplier > myTrainParams.safeSpeedDistanceMap[speedIndex] && speedIndex < myTrainParams.safeSpeedDistanceMap.size())
@@ -181,14 +185,9 @@ double MSCFModel_RailETCS::maxNextSpeed(double speed, const MSVehicle *const veh
 
 double MSCFModel_RailETCS::minNextSpeed(double speed, const MSVehicle *const veh) const
 {
-    return minNextSpeed(speed, veh, veh->getSlope());
-}
-
-double MSCFModel_RailETCS::minNextSpeed(double speed, const MSVehicle *const veh, double slope) const
-{
-    double resistance = myTrainParams.getResistance(speed);                // N
-    double gravity = myTrainParams.weight * GRAVITY * sin(DEG2RAD(slope)); // N
-    double braking = myTrainParams.getBraking(speed);                      // N
+    double resistance = myTrainParams.getResistance(speed);                          // N
+    double gravity = myTrainParams.weight * GRAVITY * sin(DEG2RAD(veh->getSlope())); // N
+    double braking = myTrainParams.getBraking(speed);                                // N
 
     const double a = (-braking - resistance - gravity) / myTrainParams.weight;
     const double minNextSpeed = speed + ACCEL2SPEED(a);
@@ -237,12 +236,14 @@ double MSCFModel_RailETCS::getSafeSpeed(const MSVehicle *const veh, double start
 double MSCFModel_RailETCS::getSafeSpeedFast(const MSVehicle *const veh, double startingSpeed, double gap, double targetSpeed, double maxSpeed) const
 {
     ETCSVehicleVariables *vehVar = (ETCSVehicleVariables *)veh->getCarFollowVariables();
+    // first get the distance needed to reach the zero speed from targetSpeed
+    // and consider any requested safe speed as it's target speed is always zero
     int speedIndex = floor(MAX2(targetSpeed, 0.) / myTrainParams.speedMultiplier);
     double targetDistance = (targetSpeed == 0 ? 0 : myTrainParams.safeSpeedDistanceMap[speedIndex]) + gap - SPEED2DIST(startingSpeed);
     int targetDistanceIndex = floor(targetDistance / myTrainParams.distanceMultiplier);
     double safeSpeed = myTrainParams.safeDistanceSpeedMap[targetDistanceIndex] * myTrainParams.speedMultiplier;
     if (safeSpeed > 0)
-        safeSpeed = sqrt(MAX2(pow(safeSpeed, 2) - 2 * vehVar->getSlopeEnergy(veh, gap), 0.));
+        safeSpeed = sqrt(MAX2(pow(safeSpeed, 2) - 2 * vehVar->getSlopeEnergy(veh, gap), 0.)); // v=sqrt(v_0^2 - 2*g*h)
     if (maxSpeed == INVALID_DOUBLE)
         maxSpeed = maxNextSpeed(startingSpeed, veh);
     return MAX2(MIN2(maxSpeed, safeSpeed), minNextSpeedEmergency(startingSpeed, veh));
@@ -261,19 +262,23 @@ double MSCFModel_RailETCS::getSafeSpeedAccurate(const MSVehicle *const veh, doub
     }
     int laneIndex = lanes.size() - 1;
     double posInLane = veh->getLanePosAfterDist(gap).second;
-    if (posInLane == -1)
+    if (posInLane == -1) // gap is ahed current route
         return targetSpeed;
-    double distance = 0.;
+    double distance = 0.; // distance covered so far
     double currentSpeed = targetSpeed;
-    double currentGravity = myTrainParams.weight * GRAVITY * sin(DEG2RAD(lanes[laneIndex]->getShape().slopeDegreeAtOffset(posInLane)));
-    gap -= SPEED2DIST(startingSpeed);
+    double currentGravity = myTrainParams.weight * GRAVITY * sin(DEG2RAD(lanes[laneIndex]->getShape().slopeDegreeAtOffset(posInLane))); // compute slope at current position
+    gap -= SPEED2DIST(startingSpeed);                                                                                                   // consider the distance already covered due to current speed
     while (distance < gap && laneIndex >= 0 && maxSpeed > currentSpeed)
     {
-        double nextSpeed = currentSpeed + 1. / 3.6;
+        // for each iteration, compute the distance that can be covered while accelerating to next speed step of 1 km/h
+        // considering the current slope and braking/traction forces at that speed
+        double nextSpeed = currentSpeed + 1. / 3.6; // increase speed by 1 km/h steps
         double currentBraking = myTrainParams.getResistance(nextSpeed) + myTrainParams.getBraking(nextSpeed);
         double partialDistance = (pow(nextSpeed, 2) - pow(currentSpeed, 2)) / (2. * (currentBraking + currentGravity) / myTrainParams.weight);
         if (posInLane - partialDistance < 0)
         {
+            // there's not enough space in this lane to reach next speed step, so i'm moving to previous lane
+            // and computing the new slope in there
             currentSpeed += sqrt(2. * posInLane * (currentBraking + currentGravity) / myTrainParams.weight);
             if (laneIndex > 0)
             {
@@ -329,7 +334,7 @@ double MSCFModel_RailETCS::ETCSVehicleVariables::getSlopeEnergy(const MSVehicle 
 {
     if (veh->getRoute().getID() != routeID)
         updateSlopeEnergy(veh);
-    double currentPosition = veh->getOdometer() - lastOdometer + veh->getLength();
+    double currentPosition = veh->getOdometer() - lastOdometer + veh->getLength(); // position over precomputed route
     double currentUntil = currentPosition + gap;
     currentPosition /= distanceMultiplier;
     currentUntil /= distanceMultiplier;
@@ -344,11 +349,10 @@ void MSCFModel_RailETCS::ETCSVehicleVariables::updateSlopeEnergy(const MSVehicle
     auto lanes = veh->getUpcomingLanesUntil(__DBL_MAX__);
     int laneIndex = 0;
     double lanePos = veh->getPositionOnLane();
-    double nextLanesLength = -lanePos;
+    double nextLanesLength = -lanePos; // length from current position
     for (auto lane : lanes)
         nextLanesLength += lane->getLength();
     distanceMultiplier = nextLanesLength / slopeEnergy.capacity();
-    double lastEnergy = 0;
     for (int i = 0; i < slopeEnergy.capacity(); i++)
     {
         double nextPos = lanePos;
@@ -358,7 +362,7 @@ void MSCFModel_RailETCS::ETCSVehicleVariables::updateSlopeEnergy(const MSVehicle
             nextPos -= lanes[nextIndex]->getLength();
             nextIndex++;
         }
-        double energy = GRAVITY * lanes[nextIndex]->getShape().positionAtOffset(lanePos).z();
+        double energy = GRAVITY * lanes[nextIndex]->getShape().positionAtOffset(lanePos).z(); // g*h where h is height at position
         slopeEnergy[i] = energy;
         lanePos = nextPos + distanceMultiplier;
         laneIndex = nextIndex;
