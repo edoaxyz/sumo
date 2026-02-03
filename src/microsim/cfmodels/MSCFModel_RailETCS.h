@@ -66,19 +66,19 @@ private:
     public:
         ETCSVehicleVariables(const MSCFModel_RailETCS &model) : speedMultiplier(model.myTrainParams.speedMultiplier)
         {
-            slopeSpeeds.reserve(model.myTrainParams.numDistances);
+            slopeEnergy.reserve(model.myTrainParams.numDistances);
         }
 
-        double getSlopeSpeed(const MSVehicle *const veh, double gap);
+        double getSlopeEnergy(const MSVehicle *const veh, double gap);
 
     private:
-        void updateSlopeSpeed(const MSVehicle *const veh);
+        void updateSlopeEnergy(const MSVehicle *const veh);
 
         std::string routeID;
         double distanceMultiplier;
         double speedMultiplier;
         double lastOdometer;
-        std::vector<std::pair<float, float>> slopeSpeeds;
+        std::vector<float> slopeEnergy;
     };
 
     struct TrainParams
