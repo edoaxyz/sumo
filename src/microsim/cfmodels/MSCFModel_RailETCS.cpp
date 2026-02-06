@@ -249,7 +249,7 @@ float MSCFModel_RailETCS::ETCSVehicleVariables::getMinGradient(const MSVehicle *
 {
     if (veh->getRoute().getID() != routeID)
         update(veh);
-    double currentPosition = veh->getOdometer() - lastOdometer; // position over precomputed route
+    double currentPosition = MAX2(veh->getOdometer() - lastOdometer, 0.); // position over precomputed route
     int index = MIN2((int)floor(currentPosition / distanceMultiplier), trainParams.numDistances - 2);
     int endIndex = MIN2(MAX2((int)ceil((currentPosition + gap) / distanceMultiplier), index + 1), trainParams.numDistances - 1);
     return map[index][endIndex].first / 10.;

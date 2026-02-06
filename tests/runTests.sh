@@ -53,8 +53,6 @@ if [[ "$SUMO_HOME" == "" ]]; then
 fi
 popd > /dev/null
 
-export SUMO_HOME="/Users/edo/unifi/sumo"
-
 # we need to be able to set this separately because in python wheels we want to test the wrapper binaries
 if [[ "$SUMO_BIN_DIR" == "" ]]; then
   SUMO_BIN_DIR="$SUMO_HOME/bin"
@@ -77,6 +75,5 @@ export SUMO_BINARY="$SUMO_BIN_DIR/sumo$sumo_suffix"
 export GUISIM_BINARY="$SUMO_BIN_DIR/sumo-gui$suffix"
 export MAROUTER_BINARY="$SUMO_BIN_DIR/marouter$suffix"
 export PYTHON="python"
-export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib:$DYLD_FALLBACK_LIBRARY_PATH
 
 texttest "$@"
