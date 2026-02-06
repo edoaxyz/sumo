@@ -112,44 +112,9 @@ MSCFModel_RailETCS::MSCFModel_RailETCS(const MSVehicleType *vtype) : MSCFModel(v
         throw ProcessError(TLF("emgBrakingTable must be defined for vType '%'.", vtype->getID()));
     }
 
-    if (distanceSamples != -1)
-        prepareSafeSpeedMap(speedTable.size(), distanceSamples);
-}
-
-void MSCFModel_RailETCS::prepareSafeSpeedMap(int numSpeeds, int numDistances)
-{
-    myTrainParams.numSpeeds = numSpeeds;
-    myTrainParams.numDistances = numDistances;
-    double currentDistance = 0;
-    myTrainParams.speedMultiplier = myTrainParams.maxSpeed / numSpeeds;
-    myTrainParams.safeSpeedDistanceMap.reserve(numSpeeds);
-    myTrainParams.safeDistanceSpeedMap.reserve(numDistances);
-    double currentBraking = INT_MAX;
-
-    // for each speed step defined in the speed table, compute the
-    // distance needed to stop from that speed considering the
-    // maximum braking force and resistance at each speed step
-    for (int i = 0; i < numSpeeds; i++)
-    {
-        double currentSpeed = myTrainParams.speedMultiplier * i;
-        double nextSpeed = myTrainParams.speedMultiplier * (i + 1);
-        currentBraking = MIN2(myTrainParams.getResistance(nextSpeed) + myTrainParams.getBraking(nextSpeed), currentBraking);
-        double partialDistance = (pow(nextSpeed, 2) - pow(currentSpeed, 2)) / (2. * currentBraking / myTrainParams.weight);
-        currentDistance += partialDistance;
-        myTrainParams.safeSpeedDistanceMap.push_back(currentDistance);
-    }
-    myTrainParams.distanceMultiplier = currentDistance / numDistances;
-
-    int speedIndex = 0;
-    // create the inverse map from distance to speed index
-    for (int i = 0; i < numDistances; i++)
-    {
-        while (i * myTrainParams.distanceMultiplier > myTrainParams.safeSpeedDistanceMap[speedIndex] && speedIndex < myTrainParams.safeSpeedDistanceMap.size())
-        {
-            speedIndex++;
-        }
-        myTrainParams.safeDistanceSpeedMap.push_back(speedIndex);
-    }
+    myTrainParams.numSpeeds = speedTable.size();
+    myTrainParams.numDistances = distanceSamples;
+    myTrainParams.speedMultiplier = myTrainParams.numSpeeds / myTrainParams.maxSpeed;
 }
 
 MSCFModel_RailETCS::~MSCFModel_RailETCS() {}
@@ -221,129 +186,86 @@ double MSCFModel_RailETCS::minNextSpeedEmergency(double speed, const MSVehicle *
     }
 }
 
-double MSCFModel_RailETCS::getSafeSpeed(const MSVehicle *const veh, double startingSpeed, double gap, double targetSpeed, double maxSpeed) const
+double MSCFModel_RailETCS::getSafeDecel(const MSVehicle *const veh, double gap) const
 {
-    if (myTrainParams.safeDistanceSpeedMap.empty() || myTrainParams.safeSpeedDistanceMap.empty())
-    {
-        return getSafeSpeedAccurate(veh, startingSpeed, gap, targetSpeed, maxSpeed);
-    }
-    else
-    {
-        return getSafeSpeedFast(veh, startingSpeed, gap, targetSpeed, maxSpeed);
-    }
-}
-
-double MSCFModel_RailETCS::getSafeSpeedFast(const MSVehicle *const veh, double startingSpeed, double gap, double targetSpeed, double maxSpeed) const
-{
-    ETCSVehicleVariables *vehVar = (ETCSVehicleVariables *)veh->getCarFollowVariables();
-    // first get the distance needed to reach the zero speed from targetSpeed
-    // and consider any requested safe speed as it's target speed is always zero
-    int speedIndex = floor(MAX2(targetSpeed, 0.) / myTrainParams.speedMultiplier);
-    double targetDistance = (targetSpeed == 0 ? 0 : myTrainParams.safeSpeedDistanceMap[speedIndex]) + gap - SPEED2DIST(startingSpeed);
-    int targetDistanceIndex = floor(targetDistance / myTrainParams.distanceMultiplier);
-    double safeSpeed = myTrainParams.safeDistanceSpeedMap[targetDistanceIndex] * myTrainParams.speedMultiplier;
-    if (safeSpeed > 0)
-        safeSpeed = sqrt(MAX2(pow(safeSpeed, 2) - 2 * vehVar->getSlopeEnergy(veh, gap), 0.)); // v=sqrt(v_0^2 - 2*g*h)
-    if (maxSpeed == INVALID_DOUBLE)
-        maxSpeed = maxNextSpeed(startingSpeed, veh);
-    return MAX2(MIN2(maxSpeed, safeSpeed), minNextSpeedEmergency(startingSpeed, veh));
-}
-
-double MSCFModel_RailETCS::getSafeSpeedAccurate(const MSVehicle *const veh, double startingSpeed, double gap, double targetSpeed, double maxSpeed) const
-{
-    if (maxSpeed == INVALID_DOUBLE)
-    {
-        maxSpeed = maxNextSpeed(startingSpeed, veh);
-    }
-    std::vector<const MSLane *> lanes = veh->getUpcomingLanesUntil(gap);
-    if (lanes.size() == 0)
-    {
-        lanes.push_back(veh->getLane());
-    }
-    int laneIndex = lanes.size() - 1;
-    double posInLane = veh->getLanePosAfterDist(gap).second;
-    if (posInLane == -1) // gap is ahed current route
-        return targetSpeed;
-    double distance = 0.; // distance covered so far
-    double currentSpeed = targetSpeed;
-    double currentGravity = myTrainParams.weight * GRAVITY * sin(DEG2RAD(lanes[laneIndex]->getShape().slopeDegreeAtOffset(posInLane))); // compute slope at current position
-    gap -= SPEED2DIST(startingSpeed);                                                                                                   // consider the distance already covered due to current speed
-    while (distance < gap && laneIndex >= 0 && maxSpeed > currentSpeed)
-    {
-        // for each iteration, compute the distance that can be covered while accelerating to next speed step of 1 km/h
-        // considering the current slope and braking/traction forces at that speed
-        double nextSpeed = currentSpeed + 1. / 3.6; // increase speed by 1 km/h steps
-        double currentBraking = myTrainParams.getResistance(nextSpeed) + myTrainParams.getBraking(nextSpeed);
-        double partialDistance = (pow(nextSpeed, 2) - pow(currentSpeed, 2)) / (2. * (currentBraking + currentGravity) / myTrainParams.weight);
-        if (posInLane - partialDistance < 0)
-        {
-            // there's not enough space in this lane to reach next speed step, so i'm moving to previous lane
-            // and computing the new slope in there
-            currentSpeed += sqrt(2. * posInLane * (currentBraking + currentGravity) / myTrainParams.weight);
-            if (laneIndex > 0)
-            {
-                currentGravity = myTrainParams.weight * GRAVITY * MIN2(sin(DEG2RAD(lanes[laneIndex]->getShape().slopeDegreeAtOffset(0))), sin(DEG2RAD(lanes[laneIndex - 1]->getShape().slopeDegreeAtOffset(0))));
-                posInLane = lanes[laneIndex - 1]->getLength();
-            }
-            laneIndex--;
-            distance += posInLane;
-        }
-        else
-        {
-            distance += partialDistance;
-            if (distance < gap)
-                currentSpeed += nextSpeed - currentSpeed;
-            posInLane -= partialDistance;
-        }
-    }
-    return MAX2(MIN2(maxSpeed, currentSpeed), minNextSpeedEmergency(startingSpeed, veh));
+    ETCSVehicleVariables *vehVars = dynamic_cast<ETCSVehicleVariables *>(veh->getCarFollowVariables());
+    return vehVars->getMinDecl(veh, gap) + GRAVITY * sin(DEG2RAD(vehVars->getMinGradient(veh, gap)));
 }
 
 double MSCFModel_RailETCS::freeSpeed(const MSVehicle *const veh, double speed, double dist, double targetSpeed,
-                                     const bool /*onInsertion*/, const CalcReason /*usage*/) const
+                                     const bool onInsertion, const CalcReason usage) const
 {
     if (MSGlobals::gSemiImplicitEulerUpdate)
     {
-        return getSafeSpeed(veh, speed, dist, targetSpeed);
+        const double safeDecel = getSafeDecel(veh, dist);
+
+        const double v = SPEED2DIST(targetSpeed);
+        if (dist < v)
+        {
+            return targetSpeed;
+        }
+        const double b = ACCEL2DIST(safeDecel);
+        const double y = MAX2(0.0, ((sqrt((b + 2.0 * v) * (b + 2.0 * v) + 8.0 * b * dist) - b) * 0.5 - v) / b);
+        const double yFull = floor(y);
+        const double exactGap = (yFull * yFull + yFull) * 0.5 * b + yFull * v + (y > yFull ? v : 0.0);
+        const double fullSpeedGain = (yFull + (onInsertion ? 1. : 0.)) * ACCEL2SPEED(safeDecel);
+        return DIST2SPEED(MAX2(0.0, dist - exactGap) / (yFull + 1)) + fullSpeedGain + targetSpeed;
     }
-    WRITE_ERROR(TL("Anything else than semi implicit euler update is not yet implemented. Exiting!"));
-    throw ProcessError();
+    else
+    {
+        WRITE_ERROR(TL("Anything else than semi implicit euler update is not yet implemented. Exiting!"));
+        throw ProcessError();
+    }
 }
 
 double MSCFModel_RailETCS::followSpeed(const MSVehicle *const veh, double speed, double gap2pred, double predSpeed, double /*predMaxDecel*/, const MSVehicle *const /*pred = 0*/, const CalcReason /*usage = CalcReason::CURRENT*/) const
 {
+    const double safeDecel = getSafeDecel(veh, gap2pred);
+
+    const double vsafe = maximumSafeStopSpeed(gap2pred, safeDecel, speed, false, TS, false); // absolute breaking distance
+    const double vmin = minNextSpeed(speed, veh);
+    const double vmax = maxNextSpeed(speed, veh);
+
     if (MSGlobals::gSemiImplicitEulerUpdate)
     {
-        return getSafeSpeed(veh, speed, gap2pred, predSpeed);
+        return MIN2(vsafe, vmax);
     }
-    WRITE_ERROR(TL("Anything else than semi implicit euler update is not yet implemented. Exiting!"));
-    throw ProcessError();
+    else
+    {
+        // ballistic
+        // XXX: the euler variant can break as strong as it wishes immediately! The ballistic cannot, refs. #2575.
+        return MAX2(MIN2(vsafe, vmax), vmin);
+    }
 }
 
 double MSCFModel_RailETCS::stopSpeed(const MSVehicle *const veh, const double speed, double gap, double /*decel*/, const CalcReason /*usage*/) const
 {
-    if (MSGlobals::gSemiImplicitEulerUpdate)
-    {
-        return getSafeSpeed(veh, speed, gap);
-    }
-    WRITE_ERROR(TL("Anything else than semi implicit euler update is not yet implemented. Exiting!"));
-    throw ProcessError();
+    const double safeDecel = getSafeDecel(veh, gap);
+
+    return MIN2(maximumSafeStopSpeed(gap, safeDecel, speed, false, TS, false), maxNextSpeed(speed, veh));
 }
 
-double MSCFModel_RailETCS::ETCSVehicleVariables::getSlopeEnergy(const MSVehicle *const veh, double gap)
+float MSCFModel_RailETCS::ETCSVehicleVariables::getMinGradient(const MSVehicle *const veh, double gap)
 {
     if (veh->getRoute().getID() != routeID)
-        updateSlopeEnergy(veh);
-    double currentPosition = veh->getOdometer() - lastOdometer + veh->getLength(); // position over precomputed route
-    double currentUntil = currentPosition + gap;
-    currentPosition /= distanceMultiplier;
-    currentUntil /= distanceMultiplier;
-    double startPosEnergy = MIN2(slopeEnergy[floor(currentPosition)], slopeEnergy[ceil(currentPosition)]);
-    double endPosEnergy = MAX2(slopeEnergy[floor(currentUntil)], slopeEnergy[ceil(currentUntil)]);
-    return startPosEnergy - endPosEnergy;
+        update(veh);
+    double currentPosition = veh->getOdometer() - lastOdometer; // position over precomputed route
+    int index = MIN2((int)floor(currentPosition / distanceMultiplier), trainParams.numDistances - 2);
+    int endIndex = MIN2(MAX2((int)ceil((currentPosition + gap) / distanceMultiplier), index + 1), trainParams.numDistances - 1);
+    return map[index][endIndex].first / 10.;
 }
 
-void MSCFModel_RailETCS::ETCSVehicleVariables::updateSlopeEnergy(const MSVehicle *const veh)
+float MSCFModel_RailETCS::ETCSVehicleVariables::getMinDecl(const MSVehicle *const veh, double gap)
+{
+    if (veh->getRoute().getID() != routeID)
+        update(veh);
+    double currentPosition = MAX2(veh->getOdometer() - lastOdometer, 0.); // position over precomputed route
+    int index = MIN2((int)floor(currentPosition / distanceMultiplier), trainParams.numDistances - 2);
+    int endIndex = MIN2(MAX2((int)ceil((currentPosition + gap) / distanceMultiplier), index + 1), trainParams.numDistances - 1);
+    return map[index][endIndex].second / trainParams.weight;
+}
+
+void MSCFModel_RailETCS::ETCSVehicleVariables::update(const MSVehicle *const veh)
 {
     routeID = veh->getRoute().getID();
     auto lanes = veh->getUpcomingLanesUntil(__DBL_MAX__);
@@ -352,20 +274,34 @@ void MSCFModel_RailETCS::ETCSVehicleVariables::updateSlopeEnergy(const MSVehicle
     double nextLanesLength = -lanePos; // length from current position
     for (auto lane : lanes)
         nextLanesLength += lane->getLength();
-    distanceMultiplier = nextLanesLength / slopeEnergy.capacity();
-    for (int i = 0; i < slopeEnergy.capacity(); i++)
+    distanceMultiplier = nextLanesLength / trainParams.numDistances;
+    for (int i = 0; i < trainParams.numDistances - 1; i++)
     {
-        double nextPos = lanePos;
-        double nextIndex = laneIndex;
-        while (nextPos > lanes[nextIndex]->getLength())
+        for (int j = i + 1; j < trainParams.numDistances; j++)
         {
-            nextPos -= lanes[nextIndex]->getLength();
-            nextIndex++;
+            double myLaneIndex = laneIndex;
+            double maxBrakingDistance = (j - i) * distanceMultiplier + lanePos - lanes[myLaneIndex]->getLength();
+            double minDec = trainParams.getBraking(lanes[myLaneIndex]->getSpeedLimit());
+            double minGradient = lanes[myLaneIndex]->getShape().slopeDegreeAtOffset(0);
+            while (maxBrakingDistance > 0 && myLaneIndex < lanes.size() - 1)
+            {
+                myLaneIndex++;
+                minDec = MIN2(minDec, trainParams.getBraking(lanes[myLaneIndex]->getSpeedLimit()));
+                minGradient = MIN2(minGradient, lanes[myLaneIndex]->getShape().slopeDegreeAtOffset(0));
+                maxBrakingDistance -= lanes[myLaneIndex]->getLength();
+            }
+            assert(floor(minDec) > 0);
+            map[i][j] = std::make_pair<signed char, float>(floor(minGradient * 10.), floor(minDec));
         }
-        double energy = GRAVITY * lanes[nextIndex]->getShape().positionAtOffset(lanePos).z(); // g*h where h is height at position
-        slopeEnergy[i] = energy;
-        lanePos = nextPos + distanceMultiplier;
-        laneIndex = nextIndex;
+
+        double toAdd = distanceMultiplier;
+        while (lanes[laneIndex]->getLength() - toAdd <= 0 && laneIndex < lanes.size())
+        {
+            toAdd -= lanes[laneIndex]->getLength();
+            laneIndex++;
+            lanePos = 0;
+        }
+        lanePos += toAdd;
     }
     lastOdometer = veh->getOdometer();
 }
