@@ -19,6 +19,7 @@
 /****************************************************************************/
 #pragma once
 #include <config.h>
+#include <unordered_map>
 
 #include <utils/common/LinearApproxHelpers.h>
 #include "MSCFModel_Rail.h"
