@@ -94,7 +94,7 @@ private:
         LinearApproxHelpers::LinearApproxMap braking;    // m/s -> kN
         LinearApproxHelpers::LinearApproxMap emgBraking; // m/s -> kN
 
-        double speedMultiplier;                           // to convert from m/s to safeSpeedDistanceMap indices
+        double speedMultiplier; // to convert from m/s to safeSpeedDistanceMap indices
 
         // @brief Gets the resistance force at a given speed
         double getResistance(double speed) const;
@@ -128,17 +128,6 @@ private:
          */
         float getMinGradient(const MSVehicle *const veh, double gap);
 
-        /*
-         * @brief Gets the minimum deceleration in the upcoming route section relevant for braking.
-         * The minimum deceleration is computed as the minimum deceleration of all lanes in the upcoming
-         * route section that can be reached within the given gap, considering only service braking.
-         *
-         * @param[in] veh The vehicle itself, used to get the current route and position
-         * @param[in] gap The distance ahead to consider
-         * @return The minimum deceleration in m/s^2
-         */
-        float getMinDecl(const MSVehicle *const veh, double gap);
-
     private:
         /*
          * @brief Updates the minimum gradient and maximum speed limits by checking the upcoming lanes in the route and their slopes
@@ -150,9 +139,10 @@ private:
         std::string routeID;       // route identifier of the last computed energy values
         double distanceMultiplier; // to convert from meters to minGradient indices
         double lastOdometer;       // last odometer value when the slope energy was computed
-        std::unordered_map<unsigned short, std::unordered_map<unsigned short,
-                                                              std::pair<signed char, float>>>
-            map; // map of min gradients and min decelerations for distance start and end indices
+        std::unordered_map<
+            unsigned short,
+            std::unordered_map<unsigned short, float>>
+            map; // map of min gradients for distance start and end indices
     };
 
     TrainParams myTrainParams; // train dynamics parameters

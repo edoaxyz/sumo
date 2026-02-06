@@ -189,7 +189,7 @@ double MSCFModel_RailETCS::minNextSpeedEmergency(double speed, const MSVehicle *
 double MSCFModel_RailETCS::getSafeDecel(const MSVehicle *const veh, double gap) const
 {
     ETCSVehicleVariables *vehVars = dynamic_cast<ETCSVehicleVariables *>(veh->getCarFollowVariables());
-    return vehVars->getMinDecl(veh, gap) + GRAVITY * sin(DEG2RAD(vehVars->getMinGradient(veh, gap)));
+    return myTrainParams.getBraking(veh->getSpeed()) / myTrainParams.weight + GRAVITY * sin(DEG2RAD(vehVars->getMinGradient(veh, gap)));
 }
 
 double MSCFModel_RailETCS::freeSpeed(const MSVehicle *const veh, double speed, double dist, double targetSpeed,
@@ -252,17 +252,7 @@ float MSCFModel_RailETCS::ETCSVehicleVariables::getMinGradient(const MSVehicle *
     double currentPosition = MAX2(veh->getOdometer() - lastOdometer, 0.); // position over precomputed route
     int index = MIN2((int)floor(currentPosition / distanceMultiplier), trainParams.numDistances - 2);
     int endIndex = MIN2(MAX2((int)ceil((currentPosition + gap) / distanceMultiplier), index + 1), trainParams.numDistances - 1);
-    return map[index][endIndex].first / 10.;
-}
-
-float MSCFModel_RailETCS::ETCSVehicleVariables::getMinDecl(const MSVehicle *const veh, double gap)
-{
-    if (veh->getRoute().getID() != routeID)
-        update(veh);
-    double currentPosition = MAX2(veh->getOdometer() - lastOdometer, 0.); // position over precomputed route
-    int index = MIN2((int)floor(currentPosition / distanceMultiplier), trainParams.numDistances - 2);
-    int endIndex = MIN2(MAX2((int)ceil((currentPosition + gap) / distanceMultiplier), index + 1), trainParams.numDistances - 1);
-    return map[index][endIndex].second / trainParams.weight;
+    return map[index][endIndex];
 }
 
 void MSCFModel_RailETCS::ETCSVehicleVariables::update(const MSVehicle *const veh)
@@ -277,21 +267,19 @@ void MSCFModel_RailETCS::ETCSVehicleVariables::update(const MSVehicle *const veh
     distanceMultiplier = nextLanesLength / trainParams.numDistances;
     for (int i = 0; i < trainParams.numDistances - 1; i++)
     {
+        double myLaneIndex = laneIndex;
+        double minGradient = lanes[myLaneIndex]->getShape().slopeDegreeAtOffset(0);
+        double maxBrakingDistance = lanePos;
         for (int j = i + 1; j < trainParams.numDistances; j++)
         {
-            double myLaneIndex = laneIndex;
-            double maxBrakingDistance = (j - i) * distanceMultiplier + lanePos - lanes[myLaneIndex]->getLength();
-            double minDec = trainParams.getBraking(lanes[myLaneIndex]->getSpeedLimit());
-            double minGradient = lanes[myLaneIndex]->getShape().slopeDegreeAtOffset(0);
-            while (maxBrakingDistance > 0 && myLaneIndex < lanes.size() - 1)
+            maxBrakingDistance += distanceMultiplier;
+            while (maxBrakingDistance > lanes[myLaneIndex]->getLength() && myLaneIndex < lanes.size() - 1)
             {
                 myLaneIndex++;
-                minDec = MIN2(minDec, trainParams.getBraking(lanes[myLaneIndex]->getSpeedLimit()));
                 minGradient = MIN2(minGradient, lanes[myLaneIndex]->getShape().slopeDegreeAtOffset(0));
                 maxBrakingDistance -= lanes[myLaneIndex]->getLength();
             }
-            assert(floor(minDec) > 0);
-            map[i][j] = std::make_pair<signed char, float>(floor(minGradient * 10.), floor(minDec));
+            map[i][j] = minGradient;
         }
 
         double toAdd = distanceMultiplier;
